@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Auto Uptolink (V21.0 - Native Referer Bounce)
+// @name         Auto Uptolink (V22.0 - Infinite Steps Bypass - Clean)
 // @namespace    http://tampermonkey.net/
-// @version      21.0
+// @version      22.0
 // @description  Bypass Up-to-link - owner PhatNotTaken
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -86,7 +86,7 @@
     }
 
     logMsg("System Ready...", "system");
-    logMsg("Nhập URL gốc (Referer) và nhấn Enter để bẻ khóa.", "warn");
+    logMsg("Nhập URL gốc (Referer) và nhấn Enter để bẻ khóa vô hạn bước.", "warn");
 
     inputField.addEventListener("keypress", function(event) {
         if (event.key === "Enter") {
@@ -152,51 +152,79 @@
 
         if (globalSessionCookies !== "") headersPost["cookie"] = globalSessionCookies;
 
+        logMsg("Fetching job details...", "system");
+
         GM_xmlhttpRequest({
             method: "POST",
             url: "https://uptolink.one/check/job",
             data: payload,
             headers: headersPost,
             onload: function(resJob) {
-                let jobData = JSON.parse(resJob.responseText);
-                if(jobData.status !== "success") return logMsg(`Lỗi job: ${resJob.responseText}`, "error");
+                let jobData;
+                try {
+                    jobData = JSON.parse(resJob.responseText);
+                } catch(e) {
+                    return logMsg(`Lỗi Parse JSON ở Check Job: ${resJob.responseText}`, "error");
+                }
+
+                if(jobData.status !== "success") {
+                    return logMsg(`Lỗi job (Có thể sai Cookie/Token): ${resJob.responseText}`, "error");
+                }
 
                 let waitTime = jobData.wait || 0;
-                logMsg(`[Step ${jobData.step || '?'}] Chờ ${waitTime} giây...`, "system");
+                let stepNum = jobData.step || '?';
+                logMsg(`[Step ${stepNum}] Yêu cầu chờ ${waitTime} giây...`, "warn");
 
-                GM_xmlhttpRequest({ method: "POST", url: "https://uptolink.one/check/countdown", data: payload, headers: headersPost });
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: "https://uptolink.one/check/countdown",
+                    data: payload,
+                    headers: headersPost
+                });
 
                 let counter = waitTime;
                 let cdInterval = setInterval(() => {
                     let lastLog = logArea.lastChild;
-                    lastLog.innerHTML = `<span style="color:#569cd6;">~</span> <span style="color:#cccccc">Đang đợi: <span style="color:#ffeb3b">${counter}s</span></span>`;
+                    lastLog.innerHTML = `<span style="color:#569cd6;">~</span> <span style="color:#cccccc">Đang đợi (Step ${stepNum}): <span style="color:#ffeb3b">${counter}s</span></span>`;
                     counter--;
 
                     if (counter < 0) {
                         clearInterval(cdInterval);
 
                         setTimeout(() => {
+                            logMsg(`Gửi yêu cầu qua ải Step ${stepNum}...`, "system");
+
                             GM_xmlhttpRequest({
                                 method: "POST",
                                 url: "https://uptolink.one/check/continue",
                                 data: payload,
                                 headers: headersPost,
                                 onload: function(resCont) {
-                                    let contData = JSON.parse(resCont.responseText);
+                                    let contData;
+                                    try {
+                                        contData = JSON.parse(resCont.responseText);
+                                    } catch(e) {
+                                        return logMsg(`Lỗi Parse JSON ở Continue: ${resCont.responseText}`, "error");
+                                    }
 
                                     if (contData.status === "finish") {
-                                        logMsg("🎉 BẺ KHÓA THÀNH CÔNG!", "success");
+                                        logMsg("=============================================", "success");
+                                        logMsg("🎉 BẺ KHÓA THÀNH CÔNG TỚI ĐÍCH!", "success");
                                         logMsg(`Thấy link đích: ${contData.url}`, "warn");
                                         logMsg("Mượn xác web gốc để trình duyệt tự gắn Header...", "warn");
+                                        logMsg("=============================================", "success");
 
                                         let bounceUrl = originUrl + "/?redirect_to_upto=" + encodeURIComponent(contData.url);
                                         setTimeout(() => { window.location.href = bounceUrl; }, 1000);
 
                                     } else if (contData.status === "success") {
-                                        logMsg(`-> Sang vòng tiếp theo...`, "success");
-                                        runStep(token, refererUrl);
+                                        logMsg(`-> Xong Step ${stepNum}. Tiếp tục vòng mới...`, "success");
+                                        setTimeout(() => {
+                                            runStep(token, refererUrl);
+                                        }, 1000);
+
                                     } else {
-                                        logMsg(`Lỗi Continue: ${resCont.responseText}`, "error");
+                                        logMsg(`Lỗi Continue (Bị kẹt ở Step ${stepNum}): ${resCont.responseText}`, "error");
                                     }
                                 }
                             });
